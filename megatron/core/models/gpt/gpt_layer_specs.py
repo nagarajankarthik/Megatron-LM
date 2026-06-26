@@ -188,6 +188,8 @@ def get_gpt_layer_with_transformer_engine_submodules(
     use_te_activation_func: bool = False,
     use_kitchen_attention: bool = False,
     kitchen_attention_backend: str = "sdpa",
+    post_self_attn_layernorm: bool = False,
+    post_mlp_layernorm: bool = False,
     mla_down_proj_fusion: bool = False,
     use_grouped_gemm_for_dense_mlp: bool = False,
 ) -> TransformerLayerSubmodules:
@@ -279,9 +281,11 @@ def get_gpt_layer_with_transformer_engine_submodules(
                     ),
                 ),
                 self_attn_bda=get_bias_dropout_add,
+                post_self_attn_layernorm=TENorm if post_self_attn_layernorm else IdentityOp,
                 pre_mlp_layernorm=backend.layer_norm() if num_experts else IdentityOp,
                 mlp=mlp,
                 mlp_bda=get_bias_dropout_add,
+                post_mlp_layernorm=TENorm if post_mlp_layernorm else IdentityOp,
                 sharded_state_dict_keys_map=(
                     {
                         "self_attention.linear_q_down_proj.layer_norm_": "input_layernorm.",
@@ -310,9 +314,11 @@ def get_gpt_layer_with_transformer_engine_submodules(
                 ),
             ),
             self_attn_bda=get_bias_dropout_add,
+            post_self_attn_layernorm=TENorm if post_self_attn_layernorm else IdentityOp,
             pre_mlp_layernorm=backend.layer_norm(has_residual=True) if num_experts else IdentityOp,
             mlp=mlp,
             mlp_bda=get_bias_dropout_add,
+            post_mlp_layernorm=TENorm if post_mlp_layernorm else IdentityOp,
         )
     else:
         qk_norm = backend.layer_norm(for_qk=True)
@@ -333,9 +339,11 @@ def get_gpt_layer_with_transformer_engine_submodules(
                 ),
             ),
             self_attn_bda=get_bias_dropout_add,
+            post_self_attn_layernorm=TENorm if post_self_attn_layernorm else IdentityOp,
             pre_mlp_layernorm=backend.layer_norm(has_residual=True) if num_experts else IdentityOp,
             mlp=mlp,
             mlp_bda=get_bias_dropout_add,
+            post_mlp_layernorm=TENorm if post_mlp_layernorm else IdentityOp,
             sharded_state_dict_keys_map={
                 "mlp.0.weight": "mlp.linear_fc1.layer_norm_weight",
                 "mlp.0.bias": "mlp.linear_fc1.layer_norm_bias",
@@ -587,6 +595,8 @@ def get_gpt_decoder_layer_specs(
             use_kitchen_attention=config.use_kitchen_attention,
             kitchen_attention_backend=config.kitchen_attention_backend,
             mla_down_proj_fusion=getattr(config, "mla_down_proj_fusion", False),
+            post_self_attn_layernorm=config.post_self_attn_layernorm,
+            post_mlp_layernorm=config.post_mlp_layernorm,
         )
         moe_layer_spec = get_gpt_layer_with_transformer_engine_spec(
             num_experts=config.num_moe_experts,
@@ -599,6 +609,8 @@ def get_gpt_decoder_layer_specs(
             use_kitchen_attention=config.use_kitchen_attention,
             kitchen_attention_backend=config.kitchen_attention_backend,
             mla_down_proj_fusion=getattr(config, "mla_down_proj_fusion", False),
+            post_self_attn_layernorm=config.post_self_attn_layernorm,
+            post_mlp_layernorm=config.post_mlp_layernorm,
         )
     elif config.transformer_impl == "inference_optimized":
         layer_norm_impl = TENorm

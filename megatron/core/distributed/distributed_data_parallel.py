@@ -48,6 +48,8 @@ class DistributedDataParallel(_BaseDataParallel):
         module: torch.nn.Module,
         disable_bucketing: bool = False,
         pg_collection: Optional[ProcessGroupCollection] = None,
+        disable_grad_buffers_cpu_backup: bool = False,
+        disable_param_buffers_cpu_backup: bool = False,
         full_param_layout: Optional[FullParamLayout] = None,
     ):
         super().__init__(config=config, module=module)
@@ -249,6 +251,8 @@ class DistributedDataParallel(_BaseDataParallel):
                 param_indices,
                 self.ddp_config.nccl_ub,
                 pg_collection,
+                disable_grad_buffers_cpu_backup=disable_grad_buffers_cpu_backup,
+                disable_param_buffers_cpu_backup=disable_param_buffers_cpu_backup,
                 param_layout=param_layout,
             )
             if buffer_key.is_expert_parallel:
