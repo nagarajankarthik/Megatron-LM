@@ -1606,7 +1606,14 @@ def wrap_model_chunks_with_ddp(
 
     # Compute per-chunk layouts (DDP only).
     per_chunk_layouts = [None] * n
+    dp_extra_kwargs = {}
     if DP is DDP:
+        dp_extra_kwargs['disable_grad_buffers_cpu_backup'] = getattr(
+            args, 'disable_grad_buffers_cpu_backup', False
+        )
+        dp_extra_kwargs['disable_param_buffers_cpu_backup'] = getattr(
+            args, 'disable_param_buffers_cpu_backup', False
+        )
         if use_layer_wise_distributed_optimizer and use_layer_wise_param_layout:
             ddp_config.use_distributed_optimizer = True
             compute_layout = LayerWiseDistributedOptimizer.compute_full_param_layout
@@ -1659,6 +1666,7 @@ def wrap_model_chunks_with_ddp(
                 module=chunk,
                 disable_bucketing=disable_bucketing,
                 **chunk_kwargs,
+                **dp_extra_kwargs
             )
         )
     return wrapped
