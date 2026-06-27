@@ -260,6 +260,12 @@ class TransformerConfig(ModelParallelConfig):
     attention_output_gate: bool = False
     """Whether to apply output gate to the attention layers."""
 
+    post_self_attn_layernorm: bool = False
+    """ Whether to apply layer norm after the self-attention layers."""
+
+    post_mlp_layernorm: bool = False
+    """ Whether to apply layer norm after the mlp layers."""
+
     test_mode: bool = False
     """Whether to run real-time tests."""
 

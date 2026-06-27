@@ -1085,13 +1085,14 @@ class MultiTokenPredictionLayer(MegatronModule):
             cp_group=self.cp_group,
             packed_seq_params=packed_seq_params,
         )
-        position_ids, _ = roll_tensor(
-            position_ids,
-            shifts=-1,
-            dims=-1,
-            cp_group=self.cp_group,
-            packed_seq_params=packed_seq_params,
-        )
+        if position_ids is not None:
+            position_ids, _ = roll_tensor(
+                position_ids,
+                shifts=-1,
+                dims=-1,
+                cp_group=self.cp_group,
+                packed_seq_params=packed_seq_params,
+            )
         if padding_mask is not None:
             padding_mask, _ = roll_tensor(
                 padding_mask,
@@ -1102,11 +1103,12 @@ class MultiTokenPredictionLayer(MegatronModule):
             )
         # embedding
         decoder_input = embedding(input_ids=input_ids, position_ids=position_ids)
+        decoder_input = decoder_input.detach()
 
         if self.config.mtp_detach_heads:
             decoder_input = decoder_input.detach()
 
-        hidden_states = make_viewless_tensor(inp=hidden_states, requires_grad=True, keep_graph=True)
+        hidden_states = make_viewless_tensor(inp=hidden_states, requires_grad=True, keep_graph=False)
         # make_viewless_tensor no-ops when hidden_states is not a view (_base is None),
         # which happens after detach() with mtp_detach_heads. Activation
         # checkpointing (CheckpointFunction.apply) requires at least one input tensor
@@ -1358,6 +1360,45 @@ class MultiTokenPredictionLayer(MegatronModule):
         else:
             outer_quantization_context = nullcontext()
 
+        """Wrap forward_func with activation checkpointing while only passing tensors."""
+
+        positional_specs = []
+        keyword_specs = []
+        tensor_args: List[torch.Tensor] = []
+
+        for arg in args:
+            if torch.is_tensor(arg):
+                positional_specs.append(('tensor', len(tensor_args)))
+                tensor_args.append(arg)
+            else:
+                positional_specs.append(('const', arg))
+
+        for key, value in kwargs.items():
+            if torch.is_tensor(value):
+                keyword_specs.append((key, ('tensor', len(tensor_args))))
+                tensor_args.append(value)
+            else:
+                keyword_specs.append((key, ('const', value)))
+
+        def run(*flat_tensor_args):
+            rebuilt_args = []
+            for spec_type, payload in positional_specs:
+                if spec_type == 'tensor':
+                    rebuilt_args.append(flat_tensor_args[payload])
+                else:
+                    rebuilt_args.append(payload)
+
+            rebuilt_kwargs = {}
+            for key, (spec_type, payload) in keyword_specs:
+                if spec_type == 'tensor':
+                    rebuilt_kwargs[key] = flat_tensor_args[payload]
+                else:
+                    rebuilt_kwargs[key] = payload
+
+            return forward_func(*rebuilt_args, **rebuilt_kwargs)
+
+        tensor_args_tuple = tuple(tensor_args)
+
         def checkpoint_handler():
             """Determines whether to use the `te_checkpoint` or `tensor_parallel.checkpoint`"""
             # fp4 quantization is internally implemented via TE's
@@ -1368,7 +1409,7 @@ class MultiTokenPredictionLayer(MegatronModule):
                 from megatron.core.extensions.transformer_engine import te_checkpoint
 
                 return te_checkpoint(
-                    custom_forward,
+                    run,
                     self.config.distribute_saved_activations,
                     tensor_parallel.random.get_cuda_rng_tracker,
                     parallel_state.get_tensor_model_parallel_group(),
@@ -1382,6 +1423,7 @@ class MultiTokenPredictionLayer(MegatronModule):
                     rotary_pos_cos,
                     rotary_pos_sin,
                     sequence_len_offset,
+                    *tensor_args_tuple,
                 )
             else:
                 # tensor_parallel.checkpoint stashes args via autograd's
@@ -1390,7 +1432,7 @@ class MultiTokenPredictionLayer(MegatronModule):
                 # non-tensor objects (``attention_bias``, ``inference_params``,
                 # ``packed_seq_params``) via the ``custom_forward`` closure.
                 return tensor_parallel.checkpoint(
-                    custom_forward,
+                    run,
                     self.config.distribute_saved_activations,
                     hidden_states,
                     decoder_input,
@@ -1402,6 +1444,7 @@ class MultiTokenPredictionLayer(MegatronModule):
                     rotary_pos_cos,
                     rotary_pos_sin,
                     sequence_len_offset,
+                    *tensor_args_tuple,
                 )
 
         if self.config.recompute_method == 'uniform':
