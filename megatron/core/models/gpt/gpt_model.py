@@ -513,7 +513,6 @@ class GPTModel(LanguageModule):
         inference_params: Optional[BaseInferenceContext] = None,
         loss_mask: Optional[Tensor] = None,
         padding_mask: Optional[Tensor] = None,
-        mtp_kwargs: Optional[dict] = None,
         output_processor: Optional[Callable[..., Tensor]] = None,
         output_processor_context: Optional[Any] = None,
     ) -> Tensor:
@@ -596,7 +595,6 @@ class GPTModel(LanguageModule):
             runtime_gather_output=runtime_gather_output,
             extra_block_kwargs=extra_block_kwargs,
             inference_context=inference_context,
-            mtp_kwargs=mtp_kwargs,
             output_processor=output_processor,
             output_processor_context=output_processor_context,
         )
@@ -621,7 +619,6 @@ class GPTModel(LanguageModule):
         runtime_gather_output=None,
         extra_block_kwargs=None,
         inference_context=None,
-        mtp_kwargs=None,
         output_processor=None,
         output_processor_context=None,
     ):
@@ -645,12 +642,10 @@ class GPTModel(LanguageModule):
         )
 
         # logits and loss
-        mtp_kwargs = mtp_kwargs or {}
-        mtp_labels = mtp_kwargs.get("mtp_labels")
         output_weight = None
         if self.share_embeddings_and_output_weights:
             output_weight = self.shared_embedding_or_output_weight()
-        if mtp_in_postprocess and mtp_labels is not None and not (in_inference_mode or is_spec_decode):
+        if mtp_in_postprocess and not (in_inference_mode or is_spec_decode):
             hidden_states = self.mtp(
                 input_ids=input_ids,
                 position_ids=position_ids,
@@ -670,7 +665,7 @@ class GPTModel(LanguageModule):
         if not self.post_process:
             return hidden_states
 
-        if self.config.mtp_num_layers and mtp_labels is not None:
+        if self.config.mtp_num_layers:
             assert self.config.mtp_num_layers > 0
             if is_spec_decode:
                 # Cache decoder hidden states for serial MTP computation
