@@ -1553,6 +1553,7 @@ def wrap_model_chunks_with_ddp(
     pg_collection=None,
     bucket_sizes=None,
     disable_bucketing_per_chunk=None,
+    args=None
 ):
     """Wrap each model chunk in DDP, pre-computing per-chunk param layouts as needed.
 
@@ -1865,6 +1866,7 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
                 pg_collection=pg_collection if args.use_megatron_fsdp else None,
                 bucket_sizes=per_chunk_bucket_sizes,
                 disable_bucketing_per_chunk=per_chunk_disable_bucketing,
+                args=args
             )
         # End of setup_stream
         # Critical: ensure side-stream work completes before touching params on default stream
